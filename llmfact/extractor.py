@@ -17,7 +17,10 @@ class LayerOutputExtractor:
         self.data_details = []
         self.test = test
         self.device = device
-        self.model.to(self.device)
+        if self.device == model.device:
+            pass
+        else:
+            self.model.to(self.device)
     
     def _hook(self, module, inputs, outputs):
         if isinstance(outputs, tuple):
