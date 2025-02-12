@@ -55,6 +55,21 @@ class MaskedGPT2ForSequenceClassification(MaskedGPT2LMModel):
             outputs = self.model(**inputs)
         return outputs
 
+class MaskedModel(MaskedGPT2LMModel):
+    def __init__(self, model, include_layers=[]):
+        super().__init__(model, include_layers)
+
+    def forward(self,
+                input_ids,
+                attention_mask,
+                max_new_tokens=50):
+        with torch.no_grad():
+            generated_output = self.model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens
+            )
+        return generated_output
 
 class MaskedGPT2AmplifiedForSequenceClassification(MaskedGPT2LMModel):
     def __init__(self, model, include_layers=[], value=1):

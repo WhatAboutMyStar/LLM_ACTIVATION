@@ -1,9 +1,6 @@
-from xml.sax.handler import feature_string_interning
-
 import torch
-import torch.nn as nn
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions, BaseModelOutputWithPoolingAndCrossAttentions
-from sklearn.decomposition import FastICA, PCA
+from sklearn.decomposition import FastICA
 import numpy as np
 
 from llmfact.utils import apply_mask_and_average, apply_mask_any

@@ -90,3 +90,21 @@ def evaluate_iou(img2d, template, verbose=1):
 			print("{}\t".format(max_index[i]), end="")
 		print()
 	return iou
+
+def selfSimilarity(components):
+	iou = evaluate_iou(components, components, verbose=0)
+	iou = pd.DataFrame(iou)
+	return iou
+
+def countSimilarity(iou_total, threshold=0.2):
+	iou_max = iou_total.max(axis=0)
+	count = np.count_nonzero(iou_total > threshold, axis=0)
+	for i in range(iou_max.shape[0]):
+		print(f"{iou_max[i]:.4f} \t", end="")
+	print()
+	for i in range(count.shape[0]):
+		print(f"{count[i]} \t", end="")
+	print()
+	for i in range(count.shape[0]):
+		print(f"{i+1} \t", end="")
+	return count
