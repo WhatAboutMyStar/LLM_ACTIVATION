@@ -1,2 +1,2 @@
 # LLM_ACTIVATION
-Large language model neuron activation
+Brain-Inspired Exploration of Functional Networks and Key Neurons in Large Language Models
