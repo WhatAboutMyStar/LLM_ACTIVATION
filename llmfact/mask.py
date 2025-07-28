@@ -10,12 +10,14 @@ class MaskedGPT2LMModel:
         self.hooks = None
 
     def register_hooks(self, mask):
-        self.hooks = []
+        self.hooks  = []
+        def create_hook(i):
+            return lambda module, inputs, outputs: self.mask_hidden_states(module,  inputs, outputs, mask[i:i+1, :])
         for i, layer_name in enumerate(self.mask_layers):
             module = self.model
             for part in layer_name.split("."):
                 module = getattr(module, part)
-            hook = module.register_forward_hook(lambda module, inputs, outputs: self.mask_hidden_states(module, inputs, outputs, mask[i:i+1, :]))
+            hook = module.register_forward_hook(create_hook(i))
             self.hooks.append(hook)
 
     def remove_hooks(self):
@@ -25,6 +27,14 @@ class MaskedGPT2LMModel:
 
     def mask_hidden_states(self, module, inputs, outputs, mask_matrix):
 
+        flag = False
+        if isinstance(outputs, tuple):
+            outputs_len = len(outputs)
+            tmp_out = []
+            for i in range(outputs_len):
+                tmp_out.append(outputs[i])
+            outputs = outputs[0]
+            flag = True
         current_device = outputs.device
 
         mask_matrix_on_device = mask_matrix.to(current_device)
@@ -33,6 +43,10 @@ class MaskedGPT2LMModel:
             batch_size, seq_len, hidden_dim = outputs.shape
             mask_expanded = mask_matrix_on_device.expand(batch_size, seq_len, hidden_dim)
             outputs.masked_fill_(mask_expanded, 0.0)
+
+        if flag:
+            tmp_out[0] = outputs
+            outputs = tuple(tmp_out)
 
         return outputs
 

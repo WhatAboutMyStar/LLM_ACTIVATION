@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import pandas as pd
+import random
 
 def IoU(n1, n2):
 	"""
@@ -108,3 +109,70 @@ def countSimilarity(iou_total, threshold=0.2):
 	for i in range(count.shape[0]):
 		print(f"{i+1} \t", end="")
 	return count
+
+def remove_hooks(module):
+	if hasattr(module, "_forward_hooks"):
+		module._forward_hooks.clear()
+	if hasattr(module, "_backward_hooks"):
+		module._backward_hooks.clear()
+	for child in module.children():
+		remove_hooks(child)
+
+def bf16_to_numpy(tensor):
+	if tensor.dtype  == torch.bfloat16:
+		return tensor.to(torch.float32).detach().numpy()   # 先转FP32再转NumPy
+	return tensor.detach().numpy()
+
+# def z_score_signals(signals):
+# 	signals = signals - signals.mean(axis=0)
+# 	std = signals.std(axis=0)
+#
+# 	std[std < np.finfo(np.float64).eps] = 1.0
+#
+# 	signals /= std
+#
+# 	return signals
+
+
+def z_score_signals(signals):
+	if not isinstance(signals, torch.Tensor):
+		raise TypeError("Input signals must be a PyTorch tensor.")
+
+	mean = torch.mean(signals, dim=0)
+	std = torch.std(signals, dim=0)
+
+	signals = signals - mean
+
+	eps = torch.finfo(signals.dtype).eps  # 获取当前数据类型的最小正数
+	std = torch.where(std < eps, torch.tensor(1.0, dtype=signals.dtype, device=signals.device), std)
+
+	# 归一化
+	signals /= std
+
+	return signals
+
+def threshold_muti_layer(layer_dict=None, threshold=3.6, cut_all=False):
+	total_layer_num = len(layer_dict)
+	any_mask = torch.zeros(total_layer_num, layer_dict[0].shape[1])
+	for i in range(total_layer_num):
+		mask = torch.abs(layer_dict[i]) > threshold
+		mask = torch.any(mask, dim=0)
+		any_mask[i] = mask
+	any_mask = any_mask.reshape(total_layer_num, 2, -1)
+	mask_matrix = torch.ones(total_layer_num, any_mask.shape[2])
+	if cut_all:
+		for i in range(total_layer_num):
+			mask_matrix[i] = torch.any(any_mask[i], dim=0)
+	else:
+		for i in range(3, total_layer_num - 2):
+			mask_matrix[i] = torch.any(any_mask[i], dim=0)
+	print(mask_matrix.sum())
+	print(mask_matrix.sum(dim=1))
+	return mask_matrix
+
+def setup_seed(seed):
+	torch.manual_seed(seed)
+	torch.cuda.manual_seed_all(seed)
+	np.random.seed(seed)
+	random.seed(seed)
+	torch.backends.cudnn.deterministic = True
