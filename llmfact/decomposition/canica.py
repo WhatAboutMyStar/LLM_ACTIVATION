@@ -49,7 +49,7 @@ class CanICA:
         U, _, _ = torch.linalg.svd(signals.T, full_matrices=False)
         components_ = U[:, :self.n_components]
 
-        self.components_ = components_.T
+        self.components_ = components_.T.detach().cpu()
 
         results = fastica(components_.to(torch.float64),
                           n_components=self.n_components,
@@ -68,6 +68,70 @@ class CanICA:
         self.normal_mixing_ = z_score_ica_maps
 
         return self
+
+class AttentionLayerAnalysis(LayerOutputExtractor):
+    def __init__(self, model, include_layers=[], test=False, device='cuda'):
+        super().__init__(model, include_layers=include_layers, test=test, device=device)
+        self.mixing_ = None
+        self.origin_mixing_ = None
+        self.normal_mixing_ = None
+
+    def fit(self, inputs, n_components=128, random_state=666, preprocessing=True, total_layer_num=32, max_iter=200):
+        if total_layer_num:
+            total_layer_num = total_layer_num
+        else:
+            total_layer_num = len(self.include_layers)
+
+        if isinstance(inputs, list):
+            layer_outputs = torch.cat([self.extract_layer_outputs(inp) for inp in inputs], dim=0)
+        else:
+            layer_outputs = self.extract_layer_outputs(inputs)
+
+        if preprocessing:
+            layer_outputs = z_score_signals(layer_outputs).to(torch.float64)
+
+        token_num = layer_outputs.shape[0]
+        layer_outputs = layer_outputs.reshape(token_num, total_layer_num, -1, 128)
+
+        layer_outputs = layer_outputs.mean(dim=3).reshape(token_num, -1)
+
+        ica = CanICA(n_components=n_components,
+                     random_state=random_state,
+                     device=self.device)
+        ica.fit(layer_outputs, max_iter=max_iter)
+
+        self.normal_mixing_ = ica.normal_mixing_
+        return self
+
+class MLPLayerAnalysis(AttentionLayerAnalysis):
+    def __init__(self, model, include_layers=[], test=False, device='cuda'):
+        super().__init__(model, include_layers=include_layers, test=test, device=device)
+
+    def fit(self, inputs, n_components=128, random_state=666, preprocessing=True, total_layer_num=32, max_iter=200):
+        if total_layer_num:
+            total_layer_num = total_layer_num
+        else:
+            total_layer_num = len(self.include_layers)
+
+        if isinstance(inputs, list):
+            layer_outputs = torch.cat([self.extract_layer_outputs(inp) for inp in inputs], dim=0)
+        else:
+            layer_outputs = self.extract_layer_outputs(inputs)
+
+        if preprocessing:
+            layer_outputs = z_score_signals(layer_outputs).to(torch.float64)
+
+        token_num = layer_outputs.shape[0]
+        layer_outputs = layer_outputs.reshape(token_num, -1)
+
+        ica = CanICA(n_components=n_components,
+                     random_state=random_state,
+                     device=self.device)
+        ica.fit(layer_outputs, max_iter=max_iter)
+
+        self.normal_mixing_ = ica.normal_mixing_
+        return self
+
 
 class SingleLayerAnalysisGPU(LayerOutputExtractor):
     def __init__(self, model, include_layers=["h.0.attn.c_attn"],  test=False, device='cpu'):

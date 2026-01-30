@@ -71,27 +71,28 @@ def pruned_llama_mlp(model, mask):
 def pruned_llama_attention(model, mask):
     """
     :param model: llama model huggingface
-    :param mask: mask shape (32, 4096)
+    :param mask: mask shape (32, 32)
     :return: model
     """
     mask = torch.tensor(mask, dtype=torch.bool)
 
     for i in range(len(model.model.layers)):
+        retain_heads = mask[i].sum()
+        attention_mask = mask[i].repeat_interleave(128)
         layer = model.model.layers[i]
-        # retain_heads = mask[i].sum() // 128
 
-        layer.self_attn.q_proj.weight.data = layer.self_attn.q_proj.weight.data[torch.where(mask[i])[0]]
-        layer.self_attn.k_proj.weight.data = layer.self_attn.k_proj.weight.data[torch.where(mask[i])[0]]
-        layer.self_attn.v_proj.weight.data = layer.self_attn.v_proj.weight.data[torch.where(mask[i])[0]]
+        layer.self_attn.q_proj.weight.data = layer.self_attn.q_proj.weight.data[torch.where(attention_mask)[0]]
+        layer.self_attn.k_proj.weight.data = layer.self_attn.k_proj.weight.data[torch.where(attention_mask)[0]]
+        layer.self_attn.v_proj.weight.data = layer.self_attn.v_proj.weight.data[torch.where(attention_mask)[0]]
 
-        layer.self_attn.q_proj.out_features = mask[i].sum().item()
-        layer.self_attn.k_proj.out_features = mask[i].sum().item()
-        layer.self_attn.v_proj.out_features = mask[i].sum().item()
+        layer.self_attn.q_proj.out_features = attention_mask.sum().item()
+        layer.self_attn.k_proj.out_features = attention_mask.sum().item()
+        layer.self_attn.v_proj.out_features = attention_mask.sum().item()
 
-        layer.self_attn.o_proj.weight.data = layer.self_attn.o_proj.weight.data[:, torch.where(mask[i])[0]]
-        layer.self_attn.o_proj.in_features = mask[i].sum().item()
-        # layer.self_attn.num_heads = retain_heads
-        # layer.self_attn.hidden_size = retain_heads * 128
+        layer.self_attn.o_proj.weight.data = layer.self_attn.o_proj.weight.data[:, torch.where(attention_mask)[0]]
+        layer.self_attn.o_proj.in_features = attention_mask.sum().item()
+        layer.self_attn.num_heads = retain_heads
+        layer.self_attn.hidden_size = retain_heads * 128
 
     gc.collect()
     torch.cuda.empty_cache()
@@ -99,17 +100,22 @@ def pruned_llama_attention(model, mask):
     return model
 
 class LayerBiasCompute:
-    def __init__(self, model, include_layers, tokenizer, mask, dataset, total_layer_num=32):
+    def __init__(self, model, include_layers, tokenizer, dataset, mlp_mask=None, attention_mask=None, total_layer_num=32):
         self.hooks = None
         self.model = model
         self.include_layers = include_layers
         self.tokenizer = tokenizer
-        self.mask = mask #(32, 11008)
+        self.mlp_mask = mlp_mask #(32, 11008)
+        self.attention_mask = attention_mask
         self.dataset = dataset
         self.total_layer_num = total_layer_num
         self.bias_dict = {i:0 for i in range(total_layer_num)}
         self.n_samples = {i:0 for i in range(total_layer_num)}
         self.mean_dict = {i:0 for i in range(total_layer_num)}
+
+        self.mean_dict_attention = {i:0 for i in range(total_layer_num)}
+        self.n_samples_attention = {i:0 for i in range(total_layer_num)}
+        self.bias_dict_attention = {i:0 for i in range(total_layer_num)}
 
     def hook_down(self, module, inputs, outputs, i, mask):
         device = inputs[0].device
@@ -131,16 +137,40 @@ class LayerBiasCompute:
 
         return outputs
 
-    def register_hooks(self, mask):
+    def hook_attention(self, module, inputs, outputs, i, mask):
+        device = inputs[0].device
+        mask = torch.tensor(mask, dtype=torch.bool).to(device)
+        # print(inputs[0].shape, mask)
+        new_input = inputs[0] * mask
+        new_input_2 = inputs[0] * ~mask
+        mean = torch.mean(new_input.reshape((-1, new_input.shape[-1])).T, dim=1)
+
+        self.mean_dict_attention[i] *= self.n_samples_attention[i] / (self.n_samples_attention[i] + 1)
+        self.mean_dict_attention[i] += mean / (self.n_samples_attention[i] + 1)
+
+        self.n_samples_attention[i] += 1
+
+        outputs = new_input_2 @ module.weight.T
+
+        return outputs
+
+    def register_hooks(self, mlp_mask=None, attention_mask=None):
         self.hooks = []
         def create_hook(i, mask):
             return lambda module, inputs, outputs: self.hook_down(module, inputs, outputs, i, mask[i:i+1, :])
 
+        def create_hook_attention(i, mask):
+            return lambda module, inputs, outputs: self.hook_attention(module, inputs, outputs, i, mask[i:i+1, :])
+
         for i, layer_name in enumerate(self.include_layers):
             module = self.model
+            layer_id = int(layer_name.split(".")[2])
             for part in layer_name.split("."):
                 module = getattr(module, part)
-            hook = module.register_forward_hook(create_hook(i, mask))
+            if "mlp" in layer_name:
+                hook = module.register_forward_hook(create_hook(layer_id, mlp_mask))
+            else:
+                hook = module.register_forward_hook(create_hook_attention(layer_id, attention_mask))
             self.hooks.append(hook)
 
     def remove_hooks(self):
@@ -155,7 +185,7 @@ class LayerBiasCompute:
         inputs_list = [self.tokenizer(inputs, return_tensors="pt", max_length=1024, truncation=True) for inputs in
                        self.dataset]
 
-        self.register_hooks(self.mask)
+        self.register_hooks(self.mlp_mask, self.attention_mask)
 
         for i in trange(len(inputs_list)):
             inputs = inputs_list[i]
@@ -165,9 +195,12 @@ class LayerBiasCompute:
 
         self.remove_hooks()
 
-        for i in range(3, self.total_layer_num-2):
+        for i in range(self.total_layer_num):
             self.bias_dict[i] = self.mean_dict[i] @ self.model.model.layers[i].mlp.down_proj.weight.data.T
             self.model.model.layers[i].mlp.down_proj.bias.data = nn.Parameter(self.bias_dict[i])
+
+            self.bias_dict_attention[i] = self.mean_dict_attention[i] @ self.model.model.layers[i].self_attn.o_proj.weight.data.T
+            self.model.model.layers[i].self_attn.o_proj.bias.data = nn.Parameter(self.bias_dict_attention[i])
 
 
     def add_bias(self):
@@ -178,3 +211,10 @@ class LayerBiasCompute:
                             dtype=self.model.model.layers[i].mlp.down_proj.weight.dtype)
             )
             torch.nn.init.zeros_(self.model.model.layers[i].mlp.down_proj.bias)
+
+            self.model.model.layers[i].self_attn.o_proj.bias = torch.nn.Parameter(
+                torch.zeros(4096,
+                            device=self.model.model.layers[i].self_attn.o_proj.weight.device,
+                            dtype=self.model.model.layers[i].self_attn.o_proj.weight.dtype)
+            )
+            torch.nn.init.zeros_(self.model.model.layers[i].self_attn.o_proj.bias)

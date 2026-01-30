@@ -6,7 +6,7 @@ from transformers.pytorch_utils import Conv1D
 
 from llmfact.pruner.gpt2 import pruned_gpt2_mlp_1, pruned_gpt2_mlp_2
 from llmfact.pruner.chatglm import pruned_glm_mlp
-from llmfact.pruner.llama import pruned_llama_mlp
+from llmfact.pruner.llama import pruned_llama_mlp, pruned_llama_attention
 from llmfact.pruner.qwen import pruned_qwen_mlp
 
 class PrunedGPT2Model:
@@ -53,8 +53,9 @@ class PrunedGLMModel:
         return self.model
 
 class PrunedLlamaModel:
-    def __init__(self, model, mask=None):
-        self.mask = mask
+    def __init__(self, model, mlp_mask=None, attention_mask=None):
+        self.mlp_mask = mlp_mask
+        self.attention_mask = attention_mask
         self.model = model
 
     def fit(self):
@@ -62,7 +63,10 @@ class PrunedLlamaModel:
         for par in self.model.parameters():
             total_par += par.numel()
         print(f"total parameters before pruned: {total_par}")
-        self.model = pruned_llama_mlp(self.model, self.mask)
+        if self.mlp_mask is not None:
+            self.model = pruned_llama_mlp(self.model, self.mlp_mask)
+        if self.attention_mask is not None:
+            self.model = pruned_llama_attention(self.model, self.attention_mask)
 
         total_par_pruned = 0
         for par in self.model.parameters():
