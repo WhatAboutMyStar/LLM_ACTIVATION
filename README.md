@@ -3,6 +3,8 @@
 
 [Pruning Large Language Models by Identifying and Preserving Functional Networks](https://arxiv.org/abs/2508.05239)
 
+[FNF: Functional Network Fingerprint for Large Language Models](https://www.arxiv.org/abs/2601.22692)
+
 ## Introduction
 ### Brain-Inspired Exploration of Functional Networks and Key Neurons in Large Language Models
 In recent years, the rapid advancement of large language models (LLMs) in natural language processing has sparked significant interest among researchers to understand their mechanisms and functional characteristics. Although prior studies have attempted to explain LLM functionalities by identifying and interpreting specific neurons, these efforts mostly focus on individual neuron contributions, neglecting the fact that human brain functions are realized through intricate interaction networks. Inspired by research on functional brain networks (FBNs) in the field of neuroscience, we utilize similar methodologies estabilished in FBN analysis to explore the "functional networks" within LLMs in this study. Experimental results highlight that, much like the human brain, LLMs exhibit certain functional networks that recur frequently during their operation. Further investigation reveals that these functional networks are indispensable for LLM performance. Inhibiting key functional networks severely impairs the model's capabilities. Conversely, amplifying the activity of neurons within these networks can enhance either the model's overall performance or its performance on specific tasks. This suggests that these functional networks are strongly associated with either specific tasks or the overall performance of the LLM. Our study provides novel insights into the interpretation of LLMs.
@@ -37,4 +39,5 @@ The development of large language models (LLMs) is costly and has significant co
   journal={arXiv preprint arXiv:2508.05239},
   year={2025}
 }
+
 ```
