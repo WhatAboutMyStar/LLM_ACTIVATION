@@ -40,4 +40,10 @@ The development of large language models (LLMs) is costly and has significant co
   year={2025}
 }
 
+@article{liu2026fnf,
+  title={FNF: Functional Network Fingerprint for Large Language Models},
+  author={Liu, Yiheng and Ning, Junhao and Xia, Sichen and Sun, Haiyang and Yang, Yang and Chi, Hanyang and Gao, Xiaohui and Qiang, Ning and Ge, Bao and Han, Junwei and others},
+  journal={arXiv preprint arXiv:2601.22692},
+  year={2026}
+}
 ```
